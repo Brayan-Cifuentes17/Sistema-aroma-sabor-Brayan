@@ -5,6 +5,9 @@ import {
   getBillById, 
   createBill, 
   addProductToBill,
+  removeProductFromBill,
+  closeBillIfEmpty,
+  deleteBill,
   Bill,
   BillProduct 
 } from '../../services/mesero/billService';
@@ -12,7 +15,7 @@ import { getCurrentUser } from '../../services/login/authService';
 import ProductCatalog from './ProductCatalog';
 import OrderItem from './OrderItem';
 import Button from '../common/Button';
-import { X, Plus} from 'lucide-react';
+import { X, Plus } from 'lucide-react';
 import '../../styles/mesero/TableModal.css';
 
 interface TableModalProps {
@@ -52,6 +55,7 @@ const TableModal: React.FC<TableModalProps> = ({ isOpen, onClose, table, onUpdat
       }
     } catch (error) {
       console.error('Error cargando cuenta:', error);
+      alert('Error al cargar la cuenta. Por favor intenta de nuevo.');
     } finally {
       setIsLoading(false);
     }
@@ -79,7 +83,7 @@ const TableModal: React.FC<TableModalProps> = ({ isOpen, onClose, table, onUpdat
       }
     } catch (error) {
       console.error('Error creando cuenta:', error);
-      alert('Error al crear la cuenta');
+      alert('Error al crear la cuenta: ' + (error as Error).message);
     } finally {
       setIsCreatingBill(false);
     }
@@ -93,13 +97,15 @@ const TableModal: React.FC<TableModalProps> = ({ isOpen, onClose, table, onUpdat
 
     setIsAddingProduct(true);
     try {
-      const success = await addProductToBill(currentBill.id, product.name, quantity);
+      const success = await addProductToBill(
+        currentBill.id, 
+        product.id,
+        product.name, 
+        quantity
+      );
 
       if (success) {
-        
         await loadBill();
-
-        
         setTimeout(() => {
           setIsCatalogOpen(false);
         }, 600);
@@ -108,16 +114,87 @@ const TableModal: React.FC<TableModalProps> = ({ isOpen, onClose, table, onUpdat
       }
     } catch (error) {
       console.error('Error agregando producto:', error);
-      alert('Error al agregar el producto');
+      alert('Error al agregar el producto: ' + (error as Error).message);
     } finally {
       setIsAddingProduct(false);
     }
   };
 
-  const handleRemoveOrder = (index: number) => {
-    const newOrders = orders.filter((_, i) => i !== index);
-    setOrders(newOrders);
-    console.log('Producto removido');
+  
+  const handleRemoveOrder = async (productId: string) => {
+    if (!currentBill) return;
+
+    if (!window.confirm('¿Estás seguro de eliminar este producto de la cuenta?')) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await removeProductFromBill(currentBill.id, productId);
+      
+      if (result.success) {
+        await loadBill();
+        
+        
+        const updatedBill = await getBillById(currentBill.id);
+        if (updatedBill && (!updatedBill.products || updatedBill.products.length === 0)) {
+          const shouldClose = window.confirm('La cuenta quedó vacía. ¿Deseas cerrarla?');
+          if (shouldClose) {
+            await handleCloseBill();
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error eliminando producto:', error);
+      alert('Error al eliminar el producto: ' + (error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCloseBill = async () => {
+    if (!currentBill) return;
+
+    try {
+      await closeBillIfEmpty(currentBill.id);
+      
+      onUpdateTable(table.id, {
+        status: 'free',
+        current_bill_id: null
+      });
+      
+      onClose();
+      alert('Cuenta cerrada exitosamente');
+    } catch (error) {
+      console.error('Error cerrando cuenta:', error);
+      alert('Error al cerrar la cuenta: ' + (error as Error).message);
+    }
+  };
+
+  const handleDeleteBill = async () => {
+    if (!currentBill) return;
+
+    if (!window.confirm('¿Estás seguro de eliminar esta cuenta? Esta acción no se puede deshacer.')) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await deleteBill(currentBill.id);
+      
+      onUpdateTable(table.id, {
+        status: 'free',
+        current_bill_id: null
+      });
+      
+      onClose();
+      alert('Cuenta eliminada exitosamente');
+    } catch (error) {
+      console.error('Error eliminando cuenta:', error);
+      alert('Error al eliminar la cuenta: ' + (error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const calculateTotal = (): number => {
@@ -183,6 +260,7 @@ const TableModal: React.FC<TableModalProps> = ({ isOpen, onClose, table, onUpdat
                       variant="primary" 
                       className="add-product-btn"
                       onClick={() => setIsCatalogOpen(true)}
+                      disabled={isAddingProduct}
                     >
                       <Plus size={18} />
                       Agregar Producto
@@ -200,9 +278,9 @@ const TableModal: React.FC<TableModalProps> = ({ isOpen, onClose, table, onUpdat
                     <div className="orders-list">
                       {orders.map((order, index) => (
                         <OrderItem 
-                          key={index}
+                          key={`${order.id}-${index}`}
                           order={order}
-                          onRemove={() => handleRemoveOrder(index)}
+                          onRemove={() => handleRemoveOrder(order.id)}
                         />
                       ))}
                     </div>
@@ -221,14 +299,36 @@ const TableModal: React.FC<TableModalProps> = ({ isOpen, onClose, table, onUpdat
 
           {currentBill && (
             <div className="table-modal-footer">
-              <Button variant="secondary" onClick={onClose}>
-                Cerrar
-              </Button>
-              <Button variant="primary" disabled={orders.length === 0}>
-                Procesar Cuenta
-              </Button>
+              <div className="footer-left">
+                <Button 
+                  variant="secondary" 
+                  onClick={handleDeleteBill}
+                  disabled={isLoading}
+                >
+                  Eliminar Cuenta
+                </Button>
+              </div>
+              <div className="footer-right">
+                <Button variant="secondary" onClick={onClose}>
+                  Cerrar
+                </Button>
+                {orders.length === 0 ? (
+                  <Button 
+                    variant="primary" 
+                    onClick={handleCloseBill}
+                    disabled={isLoading}
+                  >
+                    Cerrar Cuenta
+                  </Button>
+                ) : (
+                  <Button variant="primary" disabled={orders.length === 0}>
+                    Procesar Cuenta
+                  </Button>
+                )}
+              </div>
             </div>
           )}
+
           {isAddingProduct && (
             <div className="loading-overlay">
               <div className="spinner"></div>

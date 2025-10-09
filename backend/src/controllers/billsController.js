@@ -51,10 +51,7 @@ export async function createBill(req, res) {
   try {
     if (data.products && data.products.length > 0) {
       for (const item of data.products) {
-        const productDoc = await db
-          .collection("products")
-          .doc(item.id)
-          .get();
+        const productDoc = await db.collection("products").doc(item.id).get();
 
         if (!productDoc.exists) {
           return res.status(404).json({
@@ -78,7 +75,6 @@ export async function createBill(req, res) {
       }
     }
 
-    
     const billRef = await db.collection("bills").add({
       state: data.state || "open",
       total: data.total || 0,
@@ -88,9 +84,9 @@ export async function createBill(req, res) {
       created_at: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    res.status(201).json({ 
+    res.status(201).json({
       message: "Cuenta creada correctamente",
-      id: billRef.id
+      id: billRef.id,
     });
   } catch (error) {
     console.error("Error al crear cuenta:", error);
@@ -196,10 +192,7 @@ export async function addProductToBill(req, res) {
 
   try {
     for (const item of products) {
-      const productDoc = await db
-        .collection("products")
-        .doc(item.id)
-        .get();
+      const productDoc = await db.collection("products").doc(item.id).get();
 
       if (!productDoc.exists) {
         return res.status(404).json({
@@ -208,12 +201,13 @@ export async function addProductToBill(req, res) {
       }
 
       const productData = productDoc.data();
-      
+
       if (productData.stock < item.units) {
         return res.status(400).json({
           error: `No hay suficiente stock para ${productData.name}. Stock disponible: ${productData.stock}`,
         });
       }
+
       await db
         .collection("products")
         .doc(item.id)
@@ -222,7 +216,6 @@ export async function addProductToBill(req, res) {
         });
     }
 
-    // Obtener la cuenta actual
     const billRef = db.collection("bills").doc(id);
     const billSnap = await billRef.get();
 
@@ -233,7 +226,6 @@ export async function addProductToBill(req, res) {
     const billData = billSnap.data();
     const updatedProducts = [...(billData.products || []), ...products];
 
-    
     const total = await calculateTotal(updatedProducts);
 
     await billRef.update({
@@ -273,10 +265,19 @@ export async function removeProductFromBill(req, res) {
     }
 
     const billData = billSnap.data();
+
+    
+    const productToRemove = (billData.products || []).find(p => p.id === productId);
+    if (productToRemove) {
+      await db.collection("products").doc(productToRemove.id).update({
+        stock: admin.firestore.FieldValue.increment(productToRemove.units),
+      });
+    }
+
     const updatedProducts = (billData.products || []).filter(
       (p) => p.id !== productId
     );
-    
+
     const total = await calculateTotal(updatedProducts);
     await billRef.update({ products: updatedProducts, total });
 
@@ -287,35 +288,6 @@ export async function removeProductFromBill(req, res) {
   } catch (err) {
     res.status(500).json({
       error: "Error al eliminar producto de la cuenta",
-      details: err.message,
-    });
-  }
-}
-
-export async function closeBillIfEmpty(req, res) {
-  try {
-    const { id } = req.params;
-
-    const billRef = db.collection("bills").doc(id);
-    const billSnap = await billRef.get();
-
-    if (!billSnap.exists) {
-      return res.status(404).json({ error: "Cuenta no encontrada" });
-    }
-    
-    const billData = billSnap.data();
-
-    if (!billData.products || billData.products.length === 0) {
-      await billRef.update({ state: "closed" });
-      return res.status(200).json({ message: "Cuenta cerrada correctamente" });
-    } else {
-      return res
-        .status(400)
-        .json({ error: "La cuenta no está vacía, no se puede cerrar" });
-    }
-  } catch (err) {
-    res.status(500).json({
-      error: "Error al cerrar la cuenta",
       details: err.message,
     });
   }
@@ -342,15 +314,31 @@ export async function updateProductsInBill(req, res) {
     const billData = billSnap.data();
     const currentProducts = billData.products || [];
 
+    
+    for (const updatedProduct of products) {
+      const existing = currentProducts.find(p => p.id === updatedProduct.id);
+      if (existing) {
+        const diff = updatedProduct.units - existing.units;
+        if (diff !== 0) {
+          await db.collection("products").doc(updatedProduct.id).update({
+            stock: admin.firestore.FieldValue.increment(-diff),
+          });
+        }
+      } else {
+        
+        await db.collection("products").doc(updatedProduct.id).update({
+          stock: admin.firestore.FieldValue.increment(-updatedProduct.units),
+        });
+      }
+    }
+
+    
     products.forEach((updatedProduct) => {
       const index = currentProducts.findIndex(
         (p) => p.id === updatedProduct.id
       );
       if (index !== -1) {
-        currentProducts[index] = {
-          ...currentProducts[index],
-          ...updatedProduct,
-        };
+        currentProducts[index] = { ...currentProducts[index], ...updatedProduct };
       } else {
         currentProducts.push(updatedProduct);
       }
@@ -367,6 +355,35 @@ export async function updateProductsInBill(req, res) {
   } catch (err) {
     res.status(500).json({
       error: "Error al actualizar productos de la cuenta",
+      details: err.message,
+    });
+  }
+}
+
+export async function closeBillIfEmpty(req, res) {
+  try {
+    const { id } = req.params;
+
+    const billRef = db.collection("bills").doc(id);
+    const billSnap = await billRef.get();
+
+    if (!billSnap.exists) {
+      return res.status(404).json({ error: "Cuenta no encontrada" });
+    }
+
+    const billData = billSnap.data();
+
+    if (!billData.products || billData.products.length === 0) {
+      await billRef.update({ state: "closed" });
+      return res.status(200).json({ message: "Cuenta cerrada correctamente" });
+    } else {
+      return res
+        .status(400)
+        .json({ error: "La cuenta no está vacía, no se puede cerrar" });
+    }
+  } catch (err) {
+    res.status(500).json({
+      error: "Error al cerrar la cuenta",
       details: err.message,
     });
   }
@@ -401,10 +418,7 @@ async function calculateTotal(products) {
   let total = 0;
 
   for (const item of products) {
-    const productDoc = await db
-      .collection("products")
-      .doc(item.id)
-      .get();
+    const productDoc = await db.collection("products").doc(item.id).get();
 
     if (productDoc.exists) {
       const productData = productDoc.data();
@@ -447,9 +461,9 @@ export async function changeProductStateInBill(req, res) {
 
     await billRef.update({ products });
 
-    res
-      .status(200)
-      .json({ message: "Estado del producto actualizado correctamente" });
+    res.status(200).json({
+      message: "Estado del producto actualizado correctamente",
+    });
   } catch (err) {
     res.status(500).json({
       error: "Error al actualizar el estado del producto en la cuenta",

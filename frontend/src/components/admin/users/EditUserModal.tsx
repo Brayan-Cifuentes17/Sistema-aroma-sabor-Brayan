@@ -19,7 +19,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({
   const [userName, setUserName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
-  const [state, setState] = useState("active");
+  const [status, setState] = useState("active");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [birthdate, setBirthdate] = useState("");
@@ -41,11 +41,11 @@ const EditUserModal: React.FC<EditUserModalProps> = ({
       setUserName(user.user_name ?? "");
       setEmail(user.email ?? "");
       setRole(user.role ?? "");
-      
+
       // Normalizar state
-      const userState = user.state?.toLowerCase();
+      const userState = user.status?.toLowerCase();
       setState(userState === "activo" || userState === "active" ? "active" : "inactive");
-      
+
       setFirstName(user.person?.first_name ?? "");
       setLastName(user.person?.last_name ?? "");
       setBirthdate(user.person?.birthdate ?? "");
@@ -193,7 +193,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({
         user_name: userName.trim(),
         email: email.trim(),
         role: role,
-        state: state,
+        status: status,
         // Datos de persona para actualizar
         first_name: firstName.trim(),
         last_name: lastName.trim(),
@@ -207,7 +207,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({
         user_name: userName.trim(),
         email: email.trim(),
         role: role,
-        state: state,
+        status: status,
         created_at: user.created_at,
         person: {
           id: user.person?.id,
@@ -223,7 +223,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({
 
       // Llamar a onSubmit con el usuario completo
       await onSubmit(updatedUserForFrontend);
-      
+
       setIsConfirmOpen(false);
       onClose();
     } catch (error) {
@@ -362,18 +362,18 @@ const EditUserModal: React.FC<EditUserModalProps> = ({
                   className="form-input"
                   disabled={isSubmitting}
                 >
-                  <option value="cocinero">Cocinero</option>
+                  <option value="kitchen">Cocinero</option>
                   <option value="waiter">Mesero</option>
-                  <option value="user">Caja</option>
+                  <option value="cash">Caja</option>
                   <option value="admin">Administrador</option>
                 </select>
               </div>
 
               <div className="form-group">
-                <label htmlFor="state" className="form-label">Estado *</label>
+                <label htmlFor="status" className="form-label">Estado *</label>
                 <select
-                  id="state"
-                  value={state}
+                  id="status"
+                  value={status}
                   onChange={(e) => setState(e.target.value)}
                   className="form-input"
                   disabled={isSubmitting}
@@ -452,16 +452,16 @@ const EditUserModal: React.FC<EditUserModalProps> = ({
               </div>
 
               <div className="modal-buttons">
-                <Button 
-                  type="button" 
-                  variant="secondary" 
+                <Button
+                  type="button"
+                  variant="secondary"
                   onClick={onClose}
                   disabled={isSubmitting}
                 >
                   Cancelar
                 </Button>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   variant="primary"
                   disabled={isSubmitting}
                 >
